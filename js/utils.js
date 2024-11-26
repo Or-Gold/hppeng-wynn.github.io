@@ -354,7 +354,7 @@ Base64 = (function () {
             }
         } else if (typeof data === "number") {
             //convert to int just in case
-            let int = Math.round(data);
+            let int = data & 0xFFFFFFFF;
 
             //range of numbers that "could" fit in a uint32 -> [0, 2^32) U [-2^31, 2^31)
             if (data > 2**32 - 1 || data < -(2 ** 31)) {
@@ -362,8 +362,11 @@ Base64 = (function () {
             }
             //could be split between multiple new ints
             //reminder that shifts implicitly mod 32
-            bit_vec[bit_vec.length - 1] |= ((int & ~((~0) << length)) << (this.length));
-            if (((this.length - 1) % 32 + 1) + length > 32) {
+            const bits_occupied = (((this.length) - 1) % 32) + 1;
+            if (bits_occupied !== 32) {
+              bit_vec[bit_vec.length - 1] |= ((int & ~((~0) << length)) << this.length);
+            }
+            if (bits_occupied + length > 32) {
                 bit_vec.push(int >>> (32 - this.length));
             }
         } else {
@@ -744,42 +747,6 @@ function assert_error(func_binding, msg) {
     }
     throw new Error(msg ? msg : "Function didn't throw an error.");
 }
-
-/**
- * Deep copy object/array of basic types.
- */
-function deepcopy(obj, refs=undefined) {
-    if (refs === undefined) {
-        refs = new Map();
-    }
-    if (typeof(obj) !== 'object' || obj === null) { // null or value type
-        return obj;
-    }
-    let ret = Array.isArray(obj) ? [] : {};
-    for (let key in obj) {
-        let val;
-        try {
-            val = obj[key];
-        } catch (exc) {
-            console.trace();
-            val = undefined;
-        }
-        if (typeof(obj) === 'object') {
-            if (refs.has(val)) {
-                ret[key] = refs.get(val);
-            }
-            else {
-                refs.set(val, val);
-                ret[key] = deepcopy(val, refs);
-            }
-        }
-        else {
-            ret[key] = val;
-        }
-    }
-    return ret;
-}
-
 
 /**
  * 

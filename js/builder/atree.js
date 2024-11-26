@@ -452,7 +452,7 @@ const atree_merge = new (class extends ComputeNode {
 
         let abils_merged = new Map();
         for (const abil of default_abils[player_class]) {
-            let tmp_abil = deepcopy(abil);
+            let tmp_abil = structuredClone(abil);
             if (!('desc' in tmp_abil)) {
                 tmp_abil.desc = [];
             }
@@ -484,7 +484,7 @@ const atree_merge = new (class extends ComputeNode {
                 // do nothing otherwise.
             }
             else {
-                let tmp_abil = deepcopy(abil);
+                let tmp_abil = structuredClone(abil);
                 if (!Array.isArray(tmp_abil.desc)) {
                     tmp_abil.desc = [tmp_abil.desc];
                 }
@@ -682,7 +682,7 @@ const atree_scaling = new (class extends ComputeNode {
 
         const atree_edit = new Map();
         for (const [abil_id, abil] of atree_merged.entries()) {
-            atree_edit.set(abil_id, deepcopy(abil));
+            atree_edit.set(abil_id, structuredClone(abil));
         }
         let ret_effects = new Map();
 
@@ -892,11 +892,11 @@ const atree_collect_spells = new (class extends ComputeNode {
                     if (ret_spell) {
                         // NOTE: do not mutate results of previous steps!
                         for (const key in effect) {
-                            ret_spell[key] = deepcopy(effect[key]);
+                            ret_spell[key] = structuredClone(effect[key]);
                         }
                     }
                     else {
-                        ret_spell = deepcopy(effect);
+                        ret_spell = structuredClone(effect);
                         ret_spells.set(effect.base_spell, ret_spell);
                     }
                     for (const part of ret_spell.parts) {
@@ -969,7 +969,7 @@ const atree_collect_spells = new (class extends ComputeNode {
                         break;
                     }
                     if (!found_part && behavior === 'merge') { // add part. if behavior is merge
-                        let spell_part = deepcopy(effect);
+                        let spell_part = structuredClone(effect);
                         spell_part.name = target_part;  // has some extra fields but whatever
                         if ('hits' in spell_part) {
                             for (const idx in spell_part.hits) {
