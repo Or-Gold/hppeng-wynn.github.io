@@ -395,7 +395,7 @@ class ItemEnc {
     static HAS_POWDERS = 0b1
     static POWDER_FLAG_LEN = 1;
 
-    static ID_LEN = 13;
+    static ID_LEN = 14;
 }
 
 class SkpEnc {
@@ -422,7 +422,7 @@ class TomeEnc {
 
     static TOME_KIND_LEN = 3;
 
-    static TOME_ID_LEN = 8;
+    static TOME_ID_LEN = 9;
 }
 
 class LevelEnc {
@@ -598,9 +598,9 @@ function encodeCrafted(bitvec, item) {
  */
 function encodeRegular(bitvec, item) {
     if (item.statMap.get("NONE") !== undefined) {
-      // NOTE(orgold): (1 << 13) - 1 instead of ~0, because ~0 breaks the bitvec.
+      // NOTE(orgold): (1 << ItemEnc.ID_LEN) - 1 instead of ~0, because ~0 breaks the bitvec.
       // Most likely because of signedness.
-      bitvec.append((1 << 13) - 1, ItemEnc.ID_LEN);
+      bitvec.append((1 << ItemEnc.ID_LEN) - 1, ItemEnc.ID_LEN);
       return;
     }
 
