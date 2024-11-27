@@ -363,9 +363,7 @@ Base64 = (function () {
             //could be split between multiple new ints
             //reminder that shifts implicitly mod 32
             const bits_occupied = (((this.length) - 1) % 32) + 1;
-            if (bits_occupied !== 32) {
-              bit_vec[bit_vec.length - 1] |= ((int & ~((~0) << length)) << this.length);
-            }
+            bit_vec[bit_vec.length - 1] |= ((int & ~((~0) << length)) << (this.length & ~(bits_occupied === 32)));
             if (bits_occupied + length > 32) {
                 bit_vec.push(int >>> (32 - this.length));
             }
@@ -378,6 +376,42 @@ Base64 = (function () {
     }
 };
 
+
+
+class BitvectorCursor {
+    constructor(bitvec, idx) {
+        this.bitvec = bitvec;
+        this.curr_idx = idx;
+    };
+
+    /**
+      * @returns the result of BitVector.read_bit(idx) and advances the cursor to the next byte.
+      */
+    advance() {
+        if (this.curr_idx === this.length) {
+            throw new Error("Cannot advance further - reached the end of the vector.");
+        }
+        const idx = this.curr_idx;
+        this.curr_idx += 1;
+        return this.bitvec.read_bit(idx);
+    }
+
+    /**
+      * @param {number} amount
+      *
+      * @returns the result of BitVector.slice(cursor.current_index, amount) and advances the cursor by `end` bytes.
+      */
+    advance_by(amount) {
+        if (this.curr_idx + amount > this.bitvec.length) {
+            throw new Error(`Cannot advance by ${amount} bits - bitvec length is ${this.bitvec.length}`);
+        } else if (((this.curr_idx + amount - 1) % 32) + 1 > 32) {
+            throw new Error(`Unsafe - result of advance_to will not fit in a 32 bit integer.`)
+        }
+        const idx = this.curr_idx;
+        this.curr_idx += amount;
+        return this.bitvec.slice(idx, idx + amount);
+    }
+}
 
 /*
     Turns a raw stat and a % stat into a final stat on the basis that - raw and >= 100% becomes 0 and + raw and <=-100% becomes negative.

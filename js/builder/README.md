@@ -3,7 +3,7 @@
 Ability tree file: `atree_constants.json` 
 Major IDs file: `major_ids_clean.json`
 
-Make all your change only to those files! All other related files are automatically generated.
+Make all your changes only to those files! All other related files are automatically generated.
 
 #### How to generate the minified files:
 

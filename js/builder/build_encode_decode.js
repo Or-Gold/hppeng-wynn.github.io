@@ -284,8 +284,8 @@ async function parse_hash(url_tag) {
 /*
   * Assumptions:
   * - We make things a little extra bloated so the encoding can last for a couple versions at least
-  * - The decoder will not need to peek at the items while decoding to extract information, so we can't
-  *   escape storing information about existence or quantity of powders.
+  * - This is more of a self imposed constraint - The decoder will not need to peek at the items while decoding to extract information, 
+  *   so we can't escape storing information about existence or quantity of powders.
   * - Most items in a build will not be crafted.
   * - Most builds made will contain all items, Hence there's no need to store an additional flag to indicate
   *   that an item exists and we might as well just use a special ID to indicate no item.
@@ -354,9 +354,11 @@ async function parse_hash(url_tag) {
   *
   *   elements are ordered etwfa
   *
-  *
-  * Ability tree done last
-  * courtesy of sockmower and hpp
+  * DONE
+  * Ability tree:
+  * - 1 bit flag active / inactive (this is currently because converting between bitvec and B64 can sometimes add a few 0 bits when translating back and forth.)
+  *                              (allows more flexibility anyways)
+  * - then Encoding by hpp and sock
 */
 
 /*
@@ -365,240 +367,223 @@ async function parse_hash(url_tag) {
 
 // ENCODING CONSTANTS
 
-// powders
-const CONTINUE = 0b00;
-const REPEAT_POWDER = 0b01;
-const REPEAT_TIER = 0b10;
-const NEW_POWDER = 0b11;
-
-const NEXT_POWDER_FLAG_LEN = 2;
-const POWDER_TIERS = 6;
-const BITS_PER_ELEMENT = 4;
-const BITS_PER_POWDER = 6;
-
-// items
-const ITEM_KIND_REGULAR = 0b0;
-const ITEM_KIND_IRREGULAR = 0b1;
-const ITEM_KIND_LEN = 1;
-
-const ITEM_TYPE_CRAFTED = 0b000;
-const ITEM_TYPE_CUSTOM = 0b001;
-const ITEM_TYPE_LEN = 3;
-
-const NO_POWDERS = 0b0;
-const HAS_POWDERS = 0b1
-const POWDER_FLAG_LEN = 1;
-
-const ITEM_ID_LEN = 13;
-
-const POWDERABLES = [0, 1, 2, 3, 16];
-
-// skill points
-const NO_USER_ASSIGNED_SKP = 0b0
-const USER_ASSIGNED_SKP = 0b1
-const USER_ASSIGNED_SKP_FLAG_LEN = 1;
-
-const NO_ELEMENT_SKP_ASSIGNED = 0b0;
-const ELEMENT_SKP_ASSIGNED = 0b1;
-const ELEMENT_SKP_FLAG_LEN = 1;
-
-const SKP_BITLEN = 8; // max assign 256 SKP
-
-// Tomes
-const NO_MORE_TOMES = 0b0;
-const HAS_TOME = 0b1;
-const TOME_FLAG_LEN = 1;
-
-const TOME_KIND_WEAPON = 0b000;
-const TOME_KIND_ARMOR = 0b001;
-const TOME_KIND_GUILD = 0b010;
-const TOME_KIND_LOOTRUN = 0b011;
-
-const TOME_KIND_LEN = 3;
-
-const TOME_ID_LEN = 8;
-
-// Levels
 const MAX_LEVEL = 106;
-const LEVEL_MAX = 0b0;
-const LEVEL_NOT_MAX = 0b1;
-const LEVEL_FLAG_LEN = 1;
+const POWDERABLES = [0, 1, 2, 3, 16];
+const POWDER_TIERS = 6;
 
-// 256 levels
-const LEVEL_BIT_LEN = 8;
-
-
-/**
-  * @param {BitVector} bitvec
-  * @param { {current_index: number} } cursor
-  * @param {number} amount
-  *
-  * @TODO: This can be a method on BitVector
-  *
-  * @returns the result of read_bit(idx);
-  */
-function bitvec_read_advance_cursor(bitvec, cursor) {
-  const idx = cursor.idx;
-  cursor.idx += 1;
-  return bitvec.read_bit(idx);
+class PowderEnc {
+    static OP_CONTINUE = 0b00;
+    static OP_REPEAT_POWDER = 0b01;
+    static OP_REPEAT_TIER = 0b10;
+    static OP_NEW = 0b11;
+    static OP_LEN = 2;
+    static ELEMENT_LEN = 4;
+    static ID_LEN = 6;
 }
 
-/**
-  * @param {BitVector} bitvec
-  * @param { {current_index: number} } cursor
-  * @param {number} end
-  *
-  * @TODO: This can be a method on BitVector
-  *
-  * @returns the result of slice(cursor.current_index, amount);
-  */
-function bitvec_slice_advance_cursor(bitvec, cursor, end) {
-  const idx = cursor.idx;
-  cursor.idx += end;
-  return bitvec.slice(idx, idx + end);
+
+class ItemEnc {
+    static KIND_REGULAR = 0b0;
+    static KIND_IRREGULAR = 0b1;
+    static KIND_LEN = 1;
+
+    static TYPE_CRAFTED = 0b000;
+    static TYPE_CUSTOM = 0b001;
+    static TYPE_LEN = 3;
+
+    static NO_POWDERS = 0b0
+    static HAS_POWDERS = 0b1
+    static POWDER_FLAG_LEN = 1;
+
+    static ID_LEN = 13;
+}
+
+class SkpEnc {
+    static NO_USER_ASSIGNED = 0b0
+    static USER_ASSIGNED = 0b1
+    static USER_ASSIGNED_FLAG_LEN = 1;
+
+    static ELEMENT_UNASSIGNED = 0b0;
+    static ELEMENT_ASSIGNED = 0b1;
+    static ASSIGNED_FLAG_LEN = 1;
+
+    static AMOUNT_LEN = 8; // max assign 256 SKP
+}
+
+class TomeEnc {
+    static NO_TOME = 0b0;
+    static HAS_TOME = 0b1;
+    static FLAG_LEN = 1;
+
+    static TOME_KIND_WEAPON = 0b000;
+    static TOME_KIND_ARMOR = 0b001;
+    static TOME_KIND_GUILD = 0b010;
+    static TOME_KIND_LOOTRUN = 0b011;
+
+    static TOME_KIND_LEN = 3;
+
+    static TOME_ID_LEN = 8;
+}
+
+class LevelEnc {
+    static MAX = 0b0;
+    static NOT_MAX = 0b1;
+    static FLAG_LEN = 1;
+
+    static LEN = 8;
+}
+
+class AtreeEnc {
+    static INACTIVE = 0b0;
+    static ACTIVE = 0b1;
+    static ACTIVE_FLAG_LEN = 1;
 }
 
 /**
  * @param {Base64} b64_data_string
  */
 function parseHashStr(b64_data_string) {
-  const bitvec = new BitVector(b64_data_string);
-  cursor = {idx: 0};
+    const bitvec = new BitVector(b64_data_string);
+    const cursor = new BitvectorCursor(bitvec, 0);
 
-  const ITEM_FIELDS = 9;
-  const ITEM_ID_LEN = 13;
-  // parse items
+    const ITEM_FIELDS = 9;
+    // parse items
 
-  const POWDERABLES_INNER = [0, 1, 2, 3, 8]; // JANK [helmet, chestplate, leggings, boots, weapon]
+    const POWDERABLES_INNER = [0, 1, 2, 3, 8]; // JANK [helmet, chestplate, leggings, boots, weapon]
 
-  const NUM_SKP = 5;
+    const NUM_SKP = 5;
 
-  const items = [];
-  const powders = [];
-  const tomes = [];
-  const skp = [];
-  let level = 0;
+    const items = [];
+    const powders = [];
+    const tomes = [];
+    const skp = [];
+    const atree_vec = new BitVector(0, 0);
+    let atree_active = false;
+    let level = 0;
 
   for (let i = 0; i < ITEM_FIELDS; ++i) {
 
-    // Parse item type and ID
-    switch (bitvec_slice_advance_cursor(bitvec, cursor, ITEM_KIND_LEN)) {
-      case ITEM_KIND_REGULAR: {
-        items.push(bitvec_slice_advance_cursor(bitvec, cursor, ITEM_ID_LEN));
-        break;
+      // Parse item type and ID
+      switch (cursor.advance_by(ItemEnc.KIND_LEN)) {
+          case ItemEnc.KIND_REGULAR: {
+              items.push(cursor.advance_by(ItemEnc.ID_LEN));
+              break;
+          }
+          case ItemEnc.KIND_IRREGULAR: {
+              console.error(`WE DON"T HANDLE IRREGULAR ITEMS ATM!`);
+          }
       }
-      case ITEM_KIND_IRREGULAR: {
-        console.error(`WE DON"T HANDLE IRREGULAR ITEMS ATM!`);
-      }
-    }
 
-    if (!POWDERABLES_INNER.includes(i)) { // JANK
-      continue;
-    };
+      if (!POWDERABLES_INNER.includes(i)) { // JANK
+          continue;
+      };
 
-    // Parse powders
-    if (bitvec_slice_advance_cursor(bitvec, cursor, POWDER_FLAG_LEN) === NO_POWDERS) { 
-      powders.push([]);
-      continue;
-    } else {
-      const powderset = [];
-      let powder_id = bitvec_slice_advance_cursor(bitvec, cursor, BITS_PER_POWDER); // first powder
-      powderset.push(powder_id);
-      let powder_flag = bitvec_slice_advance_cursor(bitvec, cursor, NEXT_POWDER_FLAG_LEN);
+      // Parse powders
+      if (cursor.advance_by(ItemEnc.POWDER_FLAG_LEN) === ItemEnc.NO_POWDERS) { 
+          powders.push([]);
+          continue;
+      } else {
+          const powderset = [];
+          let powder_id = cursor.advance_by(PowderEnc.ID_LEN); // first powder
+          powderset.push(powder_id);
+          let powder_op = cursor.advance_by(PowderEnc.OP_LEN);
 
-      while (powder_flag !== CONTINUE) {
-        switch (powder_flag) {
-          case REPEAT_POWDER:
-            break;
-          case REPEAT_TIER:
-            const element = bitvec_slice_advance_cursor(bitvec, cursor, BITS_PER_ELEMENT); 
-            const tier = (((powder_id - 1) % POWDER_TIERS) + 1);
-            powder_id = element * POWDER_TIERS + tier;
-            break;
-          case NEW_POWDER:
-            powder_id = bitvec_slice_advance_cursor(bitvec, cursor, BITS_PER_POWDER);
-            break;
-          default:
-            throw new Error(`Unknown powder flag: ${powder_flag}`);
+          while (powder_op !== PowderEnc.OP_CONTINUE) {
+              switch (powder_op) {
+                case PowderEnc.OP_REPEAT_POWDER:
+                    break;
+                case PowderEnc.OP_REPEAT_TIER:
+                    const powder_element = cursor.advance_by(PowderEnc.ELEMENT_LEN); 
+                    const powder_tier = (((powder_id - 1) % POWDER_TIERS) + 1);
+                    powder_id = powder_element * POWDER_TIERS + powder_tier;
+                    break;
+                case PowderEnc.OP_NEW:
+                    powder_id = cursor.advance_by(PowderEnc.ID_LEN);
+                    break;
+                default:
+                    throw new Error(`Unknown powder flag: ${powder_op}`);
+              }
+              powderset.push(powder_id);
+              powder_op = cursor.advance_by(PowderEnc.OP_LEN);
+            }
+          powders.push(powderset);
         }
-        powderset.push(powder_id);
-        powder_flag = bitvec_slice_advance_cursor(bitvec, cursor, NEXT_POWDER_FLAG_LEN);
+  }
+
+    // Parse tomes
+    while (cursor.advance_by(TomeEnc.FLAG_LEN) === TomeEnc.HAS_TOME) {
+        const tome_kind = cursor.advance_by(TomeEnc.TOME_KIND_LEN);
+        const tome_id = cursor.advance_by(TomeEnc.TOME_ID_LEN);
+        tomes.push([tome_kind, tome_id]);
+    }
+
+    // Parse skp
+    if (cursor.advance_by(SkpEnc.USER_ASSIGNED_FLAG_LEN) === SkpEnc.USER_ASSIGNED) {
+        for (let i = 0; i < NUM_SKP; ++i) {
+            if (cursor.advance_by(SkpEnc.ASSIGNED_FLAG_LEN) === SkpEnc.ELEMENT_ASSIGNED) {
+                skp.push([i, cursor.advance_by(SkpEnc.AMOUNT_LEN)]);
+            }
+        }
+    }
+
+    // Parse level
+    if (cursor.advance_by(LevelEnc.FLAG_LEN) === LevelEnc.MAX) {
+        level = MAX_LEVEL;
+    } else {
+        level = cursor.advance_by(LevelEnc.LEN);
+    }
+
+
+  // Parse Ability Tree
+  if (cursor.advance_by(AtreeEnc.ACTIVE_FLAG_LEN) === AtreeEnc.ACTIVE) {
+      atree_active = true;
+      while (bitvec.length - cursor.curr_idx > 32) {
+          atree_vec.append(cursor.advance_by(32), 32); // BitVector.append has some issue with appending 32 bits, so we append 16 twice.
       }
-      powders.push(powderset);
-    }
+      const remaining_bits = bitvec.length - cursor.curr_idx;
+      atree_vec.append(cursor.advance_by(remaining_bits), remaining_bits);
   }
-
-  // Parse tomes
-  while (bitvec_slice_advance_cursor(bitvec, cursor, TOME_FLAG_LEN) === HAS_TOME) {
-    const tome_kind = bitvec_slice_advance_cursor(bitvec, cursor, TOME_KIND_LEN);
-    const tome_id = bitvec_slice_advance_cursor(bitvec, cursor, TOME_ID_LEN);
-    tomes.push([tome_kind, tome_id]);
-  }
-
-  // Parse skp
-  if (bitvec_slice_advance_cursor(bitvec, cursor, USER_ASSIGNED_SKP_FLAG_LEN) === USER_ASSIGNED_SKP) {
-    for (let i = 0; i < NUM_SKP; ++i) {
-      if (bitvec_slice_advance_cursor(bitvec, cursor, ELEMENT_SKP_FLAG_LEN) === ELEMENT_SKP_ASSIGNED) 
-        skp.push([i, bitvec_slice_advance_cursor(bitvec, cursor, SKP_BITLEN)]);
-    }
-  }
-
-  // Parse level
-  if (bitvec_slice_advance_cursor(bitvec, cursor, LEVEL_FLAG_LEN) === LEVEL_MAX) {
-    level = MAX_LEVEL;
-  } else {
-    level = bitvec_slice_advance_cursor(bitvec, cursor, LEVEL_BIT_LEN);
-  }
-
-  const atree_vec = new BitVector(0, 0)
-
-  while (bitvec.length - cursor.idx >= 32) {
-    atree_vec.append(bitvec_slice_advance_cursor(bitvec, cursor, 32), 32);
-  }
-
-  const atree_bitlen = bitvec.length - cursor.idx;
-  atree_vec.append(bitvec_slice_advance_cursor(bitvec, cursor, atree_bitlen), atree_bitlen);
 
   console.log("items:", items);
   console.log("powders:", powders);
   console.log("tomes:", tomes);
   console.log("skillpoints", skp);
   console.log("level:", level);
-  console.log("atree:", atree_vec.toString());
+  if (atree_active) console.log("atree: ", atree_vec.toB64());
 }
 
 function encodePowders(bitvec, powderset) {
-  if (powderset.length === 0) {
-    // An item with no powders should have it's powdered flag set to 0.
-    throw new Error("Bad implementation of encodeItem, called encodePowders on an item with no powders.");
-  };
+    if (powderset.length === 0) {
+        // An item with no powders should have it's powdered flag set to 0.
+        throw new Error("Bad implementation of encodeItem, called encodePowders on an item with no powders.");
+    };
 
-  bitvec.append(powderset[0], BITS_PER_POWDER);
+    bitvec.append(powderset[0], PowderEnc.ID_LEN);
 
-  let i = 0;
-  let mask;
-  let mask_len;
-  let flag;
-  while (i < powderset.length - 1) {
-    if (powderset[i] == powderset[i + 1]) {
-      flag = REPEAT_POWDER;;
-      mask = 0;
-      mask_len = 0;
-    } else if (powderset[i] % POWDER_TIERS === powderset[i + 1] % POWDER_TIERS) {
-      flag = REPEAT_TIER;
-      mask = Math.floor(powderset[i + 1] / POWDER_TIERS);
-      mask_len = BITS_PER_ELEMENT
-    } else {
-      flag = NEW_POWDER;
-      mask = powderset[i + 1];
-      mask_len = BITS_PER_POWDER;
+    let i = 0;
+    let mask;
+    let mask_len;
+    let flag;
+    while (i < powderset.length - 1) {
+        if (powderset[i] == powderset[i + 1]) {
+            flag = PowderEnc.OP_REPEAT_POWDER;;
+            mask = 0;
+            mask_len = 0;
+        } else if (powderset[i] % POWDER_TIERS === powderset[i + 1] % POWDER_TIERS) {
+            flag = PowderEnc.OP_REPEAT_TIER;
+            mask = Math.floor(powderset[i + 1] / POWDER_TIERS);
+            mask_len = PowderEnc.ELEMENT_LEN
+        } else {
+            flag = PowderEnc.OP_NEW;
+            mask = powderset[i + 1];
+            mask_len = PowderEnc.ID_LEN;
+        }
+        bitvec.append(flag, PowderEnc.OP_LEN);
+        bitvec.append(mask, mask_len)
+        i += 1;
     }
-    bitvec.append(flag, NEXT_POWDER_FLAG_LEN);
-    bitvec.append(mask, mask_len)
-    i += 1;
-  }
 
-  bitvec.append(CONTINUE, NEXT_POWDER_FLAG_LEN);
+    bitvec.append(PowderEnc.OP_CONTINUE, PowderEnc.OP_LEN);
 }
 
 function encodeCustom(bitvec, item) {
@@ -615,26 +600,26 @@ function encodeRegular(bitvec, item) {
     if (item.statMap.get("NONE") !== undefined) {
       // NOTE(orgold): (1 << 13) - 1 instead of ~0, because ~0 breaks the bitvec.
       // Most likely because of signedness.
-      bitvec.append((1 << 13) - 1, ITEM_ID_LEN);
+      bitvec.append((1 << 13) - 1, ItemEnc.ID_LEN);
       return;
     }
 
-    bitvec.append(item.statMap.get("id"), ITEM_ID_LEN);
+    bitvec.append(item.statMap.get("id"), ItemEnc.ID_LEN);
 }
 
 function encodeSkp(bitvec, build, skillpoints) {
     const extra_skp = skillpoints.map((user_total, i) => user_total - build.total_skillpoints[i])
 
     if (extra_skp.every(skp => skp === 0)) {
-        bitvec.append(NO_USER_ASSIGNED_SKP, USER_ASSIGNED_SKP_FLAG_LEN);
+        bitvec.append(SkpEnc.NO_USER_ASSIGNED, SkpEnc.USER_ASSIGNED_FLAG_LEN);
     } else {
-        bitvec.append(USER_ASSIGNED_SKP, USER_ASSIGNED_SKP_FLAG_LEN);
+        bitvec.append(SkpEnc.USER_ASSIGNED, SkpEnc.USER_ASSIGNED_FLAG_LEN);
         for (const skp of extra_skp) {
             if (skp > 0) {
-                bitvec.append(ELEMENT_SKP_ASSIGNED, ELEMENT_SKP_FLAG_LEN);
-                bitvec.append(skp, SKP_BITLEN);
+                bitvec.append(SkpEnc.ELEMENT_ASSIGNED, SkpEnc.ASSIGNED_FLAG_LEN);
+                bitvec.append(skp, SkpEnc.AMOUNT_LEN);
             } else {
-                bitvec.append(NO_ELEMENT_SKP_ASSIGNED, ELEMENT_SKP_FLAG_LEN);
+                bitvec.append(SkpEnc.ELEMENT_UNASSIGNED, SkpEnc.ASSIGNED_FLAG_LEN);
             }
         }
     }
@@ -672,20 +657,20 @@ function encodeBuildBinary(build, powders, skillpoints, atree, atree_state) {
             }
             case "crafted": {
                 // Crafted item encoding
-                bitvec.append(ITEM_KIND_IRREGULAR, ITEM_KIND_LEN);
-                bitvec.append(ITEM_TYPE_CRAFTED, ITEM_TYPE_LEN);
+                bitvec.append(ItemEnc.KIND_IRREGULAR, ItemEnc.KIND_LEN);
+                bitvec.append(ItemEnc.TYPE_CRAFTED, ItemEnc.TYPE_LEN);
                 encodeCrafted(bitvec, item);
                 break;
             }
             case "custom": {
                 // Custom item encoding.
-                bitvec.append(ITEM_KIND_IRREGULAR, ITEM_KIND_LEN);
-                bitvec.append(ITEM_TYPE_CUSTOM, ITEM_TYPE_LEN);
+                bitvec.append(ItemEnc.KIND_IRREGULAR, ItemEnc.KIND_LEN);
+                bitvec.append(ItemEnc.TYPE_CUSTOM, ItemEnc.TYPE_LEN);
                 encodeCustom(bitvec, item);
                 break;
             }
             default:
-                bitvec.append(ITEM_KIND_REGULAR, ITEM_KIND_LEN);
+                bitvec.append(ItemEnc.KIND_REGULAR, ItemEnc.KIND_LEN);
                 encodeRegular(bitvec, item);
                 break;
         }
@@ -694,10 +679,10 @@ function encodeBuildBinary(build, powders, skillpoints, atree, atree_state) {
       if (POWDERABLES.includes(i)) {
           const powderset_index = POWDERABLES.indexOf(i);
           if (powders[powderset_index].length > 0) {
-              bitvec.append(HAS_POWDERS, POWDER_FLAG_LEN);
+              bitvec.append(ItemEnc.HAS_POWDERS, ItemEnc.POWDER_FLAG_LEN);
               encodePowders(bitvec, powders[powderset_index])
           } else {
-              bitvec.append(NO_POWDERS, POWDER_FLAG_LEN);
+              bitvec.append(ItemEnc.NO_POWDERS, ItemEnc.POWDER_FLAG_LEN);
           }
         }
     }
@@ -705,34 +690,37 @@ function encodeBuildBinary(build, powders, skillpoints, atree, atree_state) {
     // Encode tomes
     if (tomes.length > 0) {
         for (const tome of tomes) {
-            bitvec.append(HAS_TOME, TOME_FLAG_LEN);
+            bitvec.append(TomeEnc.HAS_TOME, TomeEnc.FLAG_LEN);
             let tome_kind;
             switch (tome.statMap.get("type")) {
-                case "weaponTome": tome_kind = TOME_KIND_WEAPON; break;
-                case "armorTome": tome_kind = TOME_KIND_ARMOR; break;
-                case "guildTome": tome_kind = TOME_KIND_GUILD; break;
-                case "lootrunTome": tome_kind = TOME_KIND_LOOTRUN; break;
+                case "weaponTome": tome_kind = TomeEnc.TOME_KIND_WEAPON; break;
+                case "armorTome": tome_kind = TomeEnc.TOME_KIND_ARMOR; break;
+                case "guildTome": tome_kind = TomeEnc.TOME_KIND_GUILD; break;
+                case "lootrunTome": tome_kind = TomeEnc.TOME_KIND_LOOTRUN; break;
             }
-            bitvec.append(tome_kind, TOME_KIND_LEN);
-            bitvec.append(tome.statMap.get("id"), TOME_ID_LEN);
+            bitvec.append(tome_kind, TomeEnc.TOME_KIND_LEN);
+            bitvec.append(tome.statMap.get("id"), TomeEnc.TOME_ID_LEN);
         }
     }
-    bitvec.append(NO_MORE_TOMES, TOME_FLAG_LEN);
+    bitvec.append(TomeEnc.NO_TOME, TomeEnc.FLAG_LEN);
 
     // Encode skillpoints
     encodeSkp(bitvec, build, skillpoints);
 
     // Encode level
     if (build.level === MAX_LEVEL) {
-        bitvec.append(LEVEL_MAX, LEVEL_FLAG_LEN);
+        bitvec.append(LevelEnc.MAX, LevelEnc.FLAG_LEN);
     } else {
-        bitvec.append(LEVEL_NOT_MAX, LEVEL_FLAG_LEN);
-        bitvec.append(build.level, LEVEL_BIT_LEN);
+        bitvec.append(LevelEnc.NOT_MAX, LevelEnc.FLAG_LEN);
+        bitvec.append(build.level, LevelEnc.LEN);
     }
 
     // Encode ability tree
     if (atree.length > 0 && atree_state.get(atree[0].ability.id).active) {
-      encodeAtree(atree[0], atree_state, new Set(), bitvec);
+        bitvec.append(AtreeEnc.ACTIVE, AtreeEnc.ACTIVE_FLAG_LEN);
+        encodeAtree(atree[0], atree_state, new Set(), bitvec);
+    } else {
+        bitvec.append(AtreeEnc.INACTIVE, AtreeEnc.ACTIVE_FLAG_LEN);
     }
 
     return [bitvec, bitvec.length, bitvec.toB64()];
