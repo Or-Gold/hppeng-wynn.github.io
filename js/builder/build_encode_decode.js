@@ -281,89 +281,136 @@ async function parse_hash(url_tag) {
     return save_skp;
 }
 
-/*
-  * Assumptions:
-  * - We make things a little extra bloated so the encoding can last for a couple versions at least
-  * - This is more of a self imposed constraint - The decoder will not need to peek at the items while decoding to extract information, 
-  *   so we can't escape storing information about existence or quantity of powders.
-  * - Most items in a build will not be crafted.
-  * - Most builds made will contain all items, Hence there's no need to store an additional flag to indicate
-  *   that an item exists and we might as well just use a special ID to indicate no item.
-  * - Most builds made will not contain tomes, as it's usually too much of a bother to put on a build.
-  * - Builds are most commonly made for max level. Make a single bit flag to indicat max level or not.
-  * - Skill points are unpredictable - however, most users don't assign multiple skillpoints on every build.
-  *   if we can only store that it would be for the best.
-  * - TODO: Aspect encoding.
-  *
-  * UNFINISHED
-  * Header: 32 bits
-  * - 16 bit version (up to 2^16 versions)
-  * - 16 bits reserved
-  *
-  * UNFINISHED
-  * Item type: max 1 bit flag, 3 bits (up to 1 + 8 item types encoded)
-  * - 1 bit flag (0 = normal, 1 = other)
-  * - if flag is set, followup is a 3 bit type:
-  * -   000 crafted
-  * -   010 custom
-  * -   ...
-  *
-  * DONE
-  * Item id: 13 bits (up to 8k items encoded)
-  * - 2^13 - 1 (0b11111111111111111) means no item (:ANGRYFACE: id 0 is already in use in the db.)
-  * - ...
-  * - 1 big flag - has powders, doesn't have powders
-  *
-  * DONE
-  * powders: max 2 bit flag, 6 bits (64 powder choices, infinite powders per item)
-  * - First powder is 6 bits powder ID.
-  * - 2 bit powder header:
-  *   00 next item               [no extra bits],
-  *   01 repeat powder           [no extra bits],
-  *   10 only repeat powder tier [4 bit powder element],
-  *   11 new powder              [6 bit powder ID]
-  *
-  * DONE
-  * tomes: 1 bit flag, 6 bits
-  * - 0 - no tome.
-  * - 1 - tomes here.
-  *     3 bits tome type
-  *     8 bits tome ID
-  *
-  *   followed by the same flag - 1 for an extra tome, 0 for no more tomes.
-  *
-  *   tome type:
-  *   00 weapon
-  *   01 armor
-  *   10 guild
-  *   11 lootrun
-  *
-  *   tome_id - 8 bits (256 tomes)
-  *
-  * DONE
-  * level: max 1 bit flag, 8 bits (256 levels)
-  * - 0 = max level
-  * - 1 = 8 bit level number follows
-  *
-  * DONE
-  * manually assigned skp:
-  * - 1 bit flag (0 = no user assigned, 1 = has user assigned)
-  * - if flag then
-  *   0 - no sp in current element, continue parsing
-  *   1 - has sp in current element, parse next 8 bits as assigned count
-  *
-  *   elements are ordered etwfa
-  *
-  * DONE
-  * Ability tree:
-  * - 1 bit flag active / inactive (this is currently because converting between bitvec and B64 can sometimes add a few 0 bits when translating back and forth.)
-  *                              (allows more flexibility anyways)
-  * - then Encoding by hpp and sock
+/**
+    * Constraints:
+    * - The decoder will not need to peek at the items while decoding to extract information. 
+    *
+    * Assumptions:
+    * - Futureproof - some extra bits to store information is okay.
+    * - Most items in a build will not be crafted or custom.
+    * - Most builds will contain all items.
+    * - Most builds will not contain tomes.
+    * - Builds are most commonly made for max level.
+    * - Skill points are unpredictable - however, most users don't assign multiple skillpoints on every build.
+    *
+    * Unspecified:
+    * - Charm encoding.
+    * - Aspect encoding.
+    *
+    * Not implemented:
+    * - header
+    * - irregular item handling
+    *
+    * ======================
+    * ENCODING SPECIFICATION
+    * ======================
+    *
+    * Header: 32 bits
+    * ===============
+    * - 16 bit version (up to 2^16 versions)
+    * - 16 bits reserved
+    *
+    *
+    * Item encoding:
+    * ==============
+    * ITEM_KIND: REGULAR | IRREGULAR (1 bit)
+    * ITEM_TYPE: CUSTOM  | CRAFTED   (3 bits)
+    * ITEM_ID  : int                 (14 bits)
+    *
+    * ITEM_TYPE is encoded iff ITEM_KIND == IRREGULAR
+    * ITEM_ID_REGULAR is encoded iff ITEM_KIND == REGULAR
+    *
+    *
+    * Powder encoding:
+    * ================
+    * POWDER_FLAG: NO_POWDERS | HAS_POWDERS                              (1 bit)
+    * POWDER_OP  : CONTINUE   | REPEAT_POWDER | REPEAT_TIER | NEW_POWDER (2 bits)
+    * ELEMENT    : number                                                (4 bits)
+    * POWDER_ID  : number                                                (6 bits)
+    *
+    * POWDER_OP indicates how to interpret the next bits:
+    * - after REPEAT_POWDER follows POWDER_OP
+    * - after REPEAT_TIER   follows ELEMENT
+    * - after REPEAT_POWDER follows POWDER_ID
+    *
+    * parsing psuedocode:
+    * ------------------
+    *
+    * if POWDER_FLAG == HAS_POWDERS:
+    *     powders := []
+    *
+    *     powders.push (POWDER_ID) # parse the first powder
+    *
+    *     while POWDER_OP != CONTINUE do
+    *         switch op then
+    *             REPEAT_POWDER => powders.push previous_powder
+    *             REPEAT_TIER   => powders.push powder(element = ELEMENT, tier = previous powder tier)
+    *             NEW_POWDER    => powders.push (POWDER_ID)
+    *         end
+    *     end
+    * end
+    *
+    * NOTE: Items and powders are joined together in pairs.
+    *
+    *
+    * Tome encoding:
+    * ==============
+    * TOME_FLAG: NO_TOME | HAS_TOME                (1 bit)
+    * TOME_TYPE: WEAPON  | ARMOR | GUILD | LOOTRUN (3 bits)
+    * TOME_ID  : number                            (9 bits)
+    *
+    * TOME_TYPE is encoded iff TOME_FLAG == HAS_TOME
+    * TOME_ID is encoded iff TOME_FLAG == HAS_TOME
+    *
+    * parsing psuedocode:
+    * -----------------
+    *
+    * tomes := []
+    * while TOME_FLAG == HAS_TOME do
+    *     tomes push [TOME_TYPE, TOME_ID]
+    * end
+    *
+    *
+    * Level encoding:
+    * ===============
+    * LEVEL_FLAG: MAX_LEVEL | OTHER (1 bit)
+    * LEVEL: number (8 bits)
+    *
+    * LEVEL is encoded iff LEVEL_FLAG == OTHER
+    *
+    *
+    * Skp encoding:
+    * =============
+    * USER_ASSIGNED_SKP_FLAG: ASSIGNED | UNASSIGNED (1 bit)
+    * ELEMENT_SP            : ASSIGNED | UNASSIGNED (1 bit)
+    * SP_VALUE              : number                (8 bits)
+    *
+    * ELEMENT_SP is encoded iff USER_ASSIGNED_SKP_FLAG == ASSIGNED
+    * SP_VALUE is encoded iff ELEMENT_SP == ASSIGNED
+    *
+    * parsing psuedocode:
+    * -----------------
+    *
+    * skillpoints = List(len = # skillpoint types);
+    * if USER_ASSIGNED_SKP_FLAG:
+    *     for i in range (0, # skillpoint types) do
+    *         if ELEMENT_SP == ASSIGNED then
+    *             skillpoints[i] = SP_VALUE
+    *         else
+    *             skillpoints[i] = 0
+    *         end
+    *     end
+    * end
+    *
+    * NOTE: Skillpoints are ordered etwfa
+    *
+    * Ability tree encoding:
+    * =====================
+    * ATREE_FLAG: ACTIVE | INACTIVE (1 bit)
+    * ATREE: Sock-hpp spec
+    *
+    * ATREE is encoded iff ATREE_FLAG == ACTIVE
 */
-
-/*
- * This function mutates bitvec.
- */
 
 // ENCODING CONSTANTS
 
