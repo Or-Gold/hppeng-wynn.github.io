@@ -1,5 +1,6 @@
 let player_build;
 let build_powders;
+let global_atree;
 
 function getItemNameFromID(id) { return idMap.get(id); }
 function getTomeNameFromID(id) {
@@ -308,32 +309,48 @@ function get_full_url() {
     return `${url_base}?v=${wynn_version_id.toString()}${location.hash}`
 }
 
+function copy_notify(button_id, text) {
+    copyTextToClipboard(text);
+    let button = document.getElementById(button_id);
+    const prev_content = button.textContent;
+    setTimeout(() => {
+        document.getElementById(button_id).textContent = prev_content;
+    }, 2000)
+    document.getElementById(button_id).textContent = "Copied!";
+}
+
 function copyBuild() {
-    copyTextToClipboard(get_full_url());
-    document.getElementById("copy-button").textContent = "Copied!";
+    let build_name = document.getElementById("build-name").value;
+    if (build_name === "") {
+        link_format = get_full_url();
+    } else {
+        link_format = `[${build_name}](${get_full_url()})`;
+    }
+    copy_notify("copy-button", link_format);
 }
 
 function shareBuild(build) {
     if (build) {
-        let text = get_full_url()+"\n"+
-            "WynnBuilder build:\n"+
-            "> "+build.items[0].statMap.get("displayName")+"\n"+
-            "> "+build.items[1].statMap.get("displayName")+"\n"+
-            "> "+build.items[2].statMap.get("displayName")+"\n"+
-            "> "+build.items[3].statMap.get("displayName")+"\n"+
-            "> "+build.items[4].statMap.get("displayName")+"\n"+
-            "> "+build.items[5].statMap.get("displayName")+"\n"+
-            "> "+build.items[6].statMap.get("displayName")+"\n"+
-            "> "+build.items[7].statMap.get("displayName")+"\n"+
-            "> "+build.items[16].statMap.get("displayName")+" ["+build_powders[4].map(x => powderNames.get(x)).join("")+"]\n";
-        for (let tomeslots = 8; tomeslots < 16; tomeslots++) {
-            if (!build.items[tomeslots].statMap.has('NONE')) {
-                text += ">"+' (Has Tomes)' ;
-                break;
-            }
+        let build_name = document.getElementById("build-name").value;
+        let link_format = "";
+        if (build_name === "") {
+            link_format = get_full_url();
+        } else {
+            link_format = `[${build_name}](${get_full_url()})`;
         }
-        copyTextToClipboard(text);
-        document.getElementById("share-button").textContent = "Copied!";
+        let text_parts = [
+            // Markdown formatted link
+            link_format,
+            // Equipment
+            ...build.items.slice(0, 8).map(item => item.statMap.get("displayName")),
+            // Weapon and powders
+            `${build.items[16].statMap.get("displayName")} [${build_powders[4].map(x => powderNames.get(x)).join("")}]`
+        ]
+        // Check whether the build has tomes
+        if (!build.items.slice(8, 16).every(tome => tome.statMap.has("NONE"))) {
+            text_parts.push("(Has Tomes)");
+        }
+        copy_notify("share-button", text_parts.join('\n> '));
     }
 }
 
